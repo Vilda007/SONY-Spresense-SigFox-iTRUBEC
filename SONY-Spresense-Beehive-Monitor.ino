@@ -1,5 +1,5 @@
 long lastJob1s = 0, lastJob5s = 0, lastJob10s = 0, lastJob30s = 0, lastJob1min = 0, lastJob5min = 0, lastJob10min = 0;
-float myTemp, myPres, myHumi; //my variables
+float myTemp, myPres, myHumi, myLon, myLat, myLastLon, myLastLat, myLonChange, myLatChange; //my variables
 char zprava[12]; //SigFox message
 char myDate[15], myTime[15]; // Date and Time
 int t1, t2, t3, v1, p1, n1; //SigFox variables
@@ -18,6 +18,8 @@ Adafruit_BME280 bme;
 
 SDClass SD;
 File myLogFile;
+
+const float myPosChangeTreshold = 0.001; //If position changes more, alert is triggered
 
 #define STRING_BUFFER_SIZE  128       /**< %Buffer size */
 #define RESTART_CYCLE       (60 * 5)  /**< positioning test term */
@@ -227,15 +229,13 @@ static void get_date_time(SpNavData *pNavData)
 {
   /* get date */
   snprintf(myDate, 15, "%04d/%02d/%02d ", pNavData->time.year, pNavData->time.month, pNavData->time.day);
-  //Serial.print(StringBuffer);
   /* get time */
   snprintf(myTime, 15, "%02d:%02d:%02d.%06d, ", pNavData->time.hour, pNavData->time.minute, pNavData->time.sec, pNavData->time.usec);
-  //Serial.print(StringBuffer);
-}  
+}
 
 /**
- * @brief %Print position information.
- */
+   @brief %Print position information.
+*/
 static void print_pos(SpNavData *pNavData)
 {
   char StringBuffer[STRING_BUFFER_SIZE];
@@ -263,21 +263,27 @@ static void print_pos(SpNavData *pNavData)
   if (pNavData->posDataExist == 0)
   {
     Serial.print("No Position");
+    myLat = 0;
+    myLon = 0;
+    myLastLat = 0;
+    myLastLon = 0;
   }
   else
   {
     Serial.print("Lat=");
-    Serial.print(pNavData->latitude, 6);
+    myLat = (pNavData->latitude, 6);
+    Serial.print(myLat);
     Serial.print(", Lon=");
-    Serial.print(pNavData->longitude, 6);
+    myLon = (pNavData->longitude, 6);
+    Serial.print(myLon);
   }
 
   Serial.println("");
 }
 
 /**
- * @brief %Print satellite condition.
- */
+   @brief %Print satellite condition.
+*/
 static void print_condition(SpNavData *pNavData)
 {
   char StringBuffer[STRING_BUFFER_SIZE];
@@ -344,8 +350,8 @@ void loop() {
   {
     // kód vykonaný každou 1 vteřinu (1000 ms)
     //Serial.println("1 s");
-    
-    
+
+
     lastJob1s = millis();
   } // 1s konec
 
@@ -469,6 +475,7 @@ void loop() {
     // kód vykonaný každou 1 minutu (60000 ms)
     //Serial.println("1min");
     // Read all data from BME280
+    Serial.println();
     digitalWrite(LED0, HIGH);
     // Temperature
     Serial.print("Temperature  :   ");
@@ -502,6 +509,10 @@ void loop() {
       myLogFile.print(myHumi);
       myLogFile.print(";");
       myLogFile.print(myPres);
+      myLogFile.print(";");
+      myLogFile.print(myLon);
+      myLogFile.print(";");
+      myLogFile.print(myLat);
       myLogFile.println("");
       myLogFile.close();
       Serial.println("...done.");
@@ -511,6 +522,30 @@ void loop() {
     }
     digitalWrite(LED1, LOW);
     Serial.println();
+
+    //position change check
+    myLonChange = abs(myLastLon - myLon);
+    myLatChange = abs(myLastLat - myLat);
+    myLastLat = myLat;
+    myLastLon = myLon;
+    //Debug print
+    Serial.println();
+    Serial.print("Lat: ");
+    Serial.print(myLat);
+    Serial.print(" ==>Absolute change: ");
+    Serial.println(myLatChange);
+    Serial.print("Lon: ");
+    Serial.print(myLon);
+    Serial.print(" ==>Absolute change: ");
+    Serial.println(myLonChange);
+    Serial.println();
+    //Check if position was changed
+    if ((myPosChangeTreshold > myLonChange) || (myPosChangeTreshold > myLatChange)) {
+      //POSITION CHANGE ALERT!
+      Serial.println();
+      Serial.println("POSITION CHANGED");
+      Serial.println();
+    }
 
     lastJob1min = millis();
   } // 1min konec
