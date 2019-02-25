@@ -3,6 +3,9 @@ float myTemp, myPres, myHumi, myLon, myLat, myLastLon, myLastLat, myLonChange, m
 char zprava[12]; //SigFox message
 char myDate[15], myTime[15]; // Date and Time
 int t1, t2, t3, v1, p1, n1; //SigFox variables
+int myZvuk = 0, myZvukSum = 0,  myZvukCount = 0, myZvukAVG = 0;
+const int sampleWindow = 50; // Sample window width in mS (50 mS = 20Hz)
+unsigned int sample;
 
 // libraries
 #include <Wire.h>
@@ -19,7 +22,7 @@ Adafruit_BME280 bme;
 SDClass SD;
 File myLogFile;
 
-const float myPosChangeTreshold = 0.001; //If position changes more, alert is triggered
+const float myPosChangeTreshold = 0.00001; //If position changes more, alert is triggered
 
 #define STRING_BUFFER_SIZE  128       /**< %Buffer size */
 #define RESTART_CYCLE       (60 * 5)  /**< positioning test term */
@@ -340,6 +343,33 @@ static void print_condition(SpNavData *pNavData)
   }
 }
 
+void SampleSound() {
+  unsigned long startMillis = millis(); // Start of sample window
+  unsigned int peakToPeak = 0;   // peak-to-peak level
+
+  unsigned int signalMax = 0;
+  unsigned int signalMin = 1024;
+
+  // collect data for 50 mS
+  while (millis() - startMillis < sampleWindow)
+  {
+    sample = analogRead(A0);
+    if (sample < 1024)  // toss out spurious readings
+    {
+      if (sample > signalMax)
+      {
+        signalMax = sample;  // save just the max levels
+      }
+      else if (sample < signalMin)
+      {
+        signalMin = sample;  // save just the min levels
+      }
+    }
+  }
+  peakToPeak = signalMax - signalMin;  // max - min = peak-peak amplitude
+  myZvuk = peakToPeak;
+}
+
 // LOOP-LOOP-LOOP-LOOP-LOOP-LOOP-LOOP-LOOP-LOOP-LOOP-LOOP-LOOP-LOOP-LOOP-LOOP-LOOP-LOOP-LOOP-LOOP-LOOP-LOOP-LOOP-LOOP-
 void loop() {
 
@@ -447,6 +477,12 @@ void loop() {
       }
     }
 
+    SampleSound();
+    Serial.print("Sound level: ");
+    Serial.print(myZvuk);
+    myZvukSum = myZvukSum + myZvuk;
+    myZvukCount = myZvukCount +1;
+
     lastJob5s = millis();
   } // 5s konec
 
@@ -474,6 +510,10 @@ void loop() {
   {
     // kód vykonaný každou 1 minutu (60000 ms)
     //Serial.println("1min");
+    //Average level of sound
+    myZvukAVG = myZvukSum / myZvukCount;
+    myZvukSum = 0;
+    myZvukCount = 0;
     // Read all data from BME280
     Serial.println();
     digitalWrite(LED0, HIGH);
@@ -513,6 +553,8 @@ void loop() {
       myLogFile.print(myLon);
       myLogFile.print(";");
       myLogFile.print(myLat);
+      myLogFile.print(";");
+      myLogFile.print(myZvukAVG);
       myLogFile.println("");
       myLogFile.close();
       Serial.println("...done.");
@@ -540,7 +582,7 @@ void loop() {
     Serial.println(myLonChange);
     Serial.println();
     //Check if position was changed
-    if ((myPosChangeTreshold > myLonChange) || (myPosChangeTreshold > myLatChange)) {
+    if ((myPosChangeTreshold < myLonChange) || (myPosChangeTreshold < myLatChange)) {
       //POSITION CHANGE ALERT!
       Serial.println();
       Serial.println("POSITION CHANGED");
