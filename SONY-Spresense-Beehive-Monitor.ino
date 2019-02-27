@@ -2,8 +2,8 @@ long lastJob1s = 0, lastJob5s = 0, lastJob10s = 0, lastJob30s = 0, lastJob1min =
 float myTemp, myPres, myHumi, myLon, myLat, myLastLon, myLastLat, myLonChange, myLatChange; //my variables
 char zprava[12]; //SigFox message
 char myDate[15], myTime[15]; // Date and Time
-int t1, t2, t3, v1, p1, n1; //SigFox variables
-int myZvuk = 0, myZvukSum = 0,  myZvukCount = 0, myZvukAVG = 0;
+int t1, v1, p1, s1, lon1, lat1; //SigFox variables
+int myZvuk = 0, myZvukSum = 0,  myZvukCount = 0, myZvukAVG = 0, myZvukMin = 1024, myZvukMax = 0;
 const int sampleWindow = 50; // Sample window width in mS (50 mS = 20Hz)
 unsigned int sample;
 
@@ -217,7 +217,7 @@ void setup() {
     myLogFile = SD.open("iTrubecLog.csv", FILE_WRITE);
     if (myLogFile) {
       Serial.print("Writing header row to log file iTrubecLog.csv on SD card...");
-      myLogFile.println("Date;Time;Temperature;Humidity;Pressure;Long;Lat");
+      myLogFile.println("Date;Time;Temperature;Humidity;Atm.Pressure;Longitude;Latitude;AVG Sound level;MIN Sound level;MAX Sound level");
       myLogFile.close();
       Serial.println("...done.");
     } else {
@@ -479,9 +479,15 @@ void loop() {
 
     SampleSound();
     Serial.print("Sound level: ");
-    Serial.print(myZvuk);
+    Serial.println(myZvuk);
     myZvukSum = myZvukSum + myZvuk;
-    myZvukCount = myZvukCount +1;
+    myZvukCount = myZvukCount + 1;
+    if (myZvuk < myZvukMin) {
+      myZvukMin = myZvuk;
+    }
+    if (myZvuk > myZvukMax) {
+      myZvukMax = myZvuk;
+    }
 
     lastJob5s = millis();
   } // 5s konec
@@ -532,6 +538,12 @@ void loop() {
     myPres = bme.readPressure() / 100.0F;
     Serial.print(myPres);
     Serial.println(" hPa");
+    Serial.print("Sound lvl - AVG: ");
+    Serial.print(myZvukAVG);
+    Serial.print(", MIN: ");
+    Serial.print(myZvukMin);
+    Serial.print(", MAX: ");
+    Serial.println(myZvukMax);
     Serial.println();
     digitalWrite(LED0, LOW);
 
@@ -555,6 +567,12 @@ void loop() {
       myLogFile.print(myLat);
       myLogFile.print(";");
       myLogFile.print(myZvukAVG);
+      myLogFile.print(";");
+      myLogFile.print(myZvukMin);
+      myZvukMin = 1024;
+      myLogFile.print(";");
+      myLogFile.print(myZvukMax);
+      myZvukMax = 0;
       myLogFile.println("");
       myLogFile.close();
       Serial.println("...done.");
