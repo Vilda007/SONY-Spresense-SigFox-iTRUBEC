@@ -502,7 +502,7 @@ void loop() {
     Serial.println(" %");
     // Atmospherical pressure
     Serial.print("Pressure     : ");
-    myPres = bme.readPressure() / 100.0F;
+    myPres = bme.readPressure() / 100.0F + 26; //26 is correction for concrete sensor
     Serial.print(myPres);
     Serial.println(" hPa");
     Serial.print("Sound lvl - AVG: ");
