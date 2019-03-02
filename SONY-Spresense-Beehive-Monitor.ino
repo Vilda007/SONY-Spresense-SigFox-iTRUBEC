@@ -1,8 +1,9 @@
-long lastJob1s = 0, lastJob5s = 0, lastJob10s = 0, lastJob30s = 0, lastJob1min = 0, lastJob5min = 0, lastJob10min = 0;
+long lastJob1s = 0, lastJob5s = 0, lastJob10s = 0, lastJob30s = 0, lastJob1min = 0, lastJob5min = 0, lastJob15min = 0;
 float myTemp, myPres, myHumi, myLon, myLat, myLastLon, myLastLat, myLonChange, myLatChange; //my variables
 char zprava[12]; //SigFox message
 char myDate[15], myTime[15]; // Date and Time
-int t1, v1, p1, s1, lon1, lat1; //SigFox variables
+int myYear = 1980; // Year - used just to determine if the actual time has been retrieved from GNSS
+int t1, v1, p1, s1; //SigFox variables
 int myZvuk = 0, myZvukSum = 0,  myZvukCount = 0, myZvukAVG = 0, myZvukMin = 1024, myZvukMax = 0;
 const int sampleWindow = 50; // Sample window width in mS (50 mS = 20Hz)
 unsigned int sample;
@@ -12,13 +13,15 @@ unsigned int sample;
 #include <SPI.h>
 #include <Adafruit_Sensor.h>
 #include <Adafruit_BME280.h>
+#include <SDHCI.h>
+#include <GNSS.h>
+
 // BME280 sensor address setup
 #define BME280_ADDRESS (0x76)
 // initialization of BME280 sensor
 Adafruit_BME280 bme;
-#include <SDHCI.h>
-#include <GNSS.h>
 
+//SD card
 SDClass SD;
 File myLogFile;
 
@@ -40,10 +43,8 @@ enum ParamSat {
 
 /* Set this parameter depending on your current region. */
 static enum ParamSat satType =  eSatGpsGlonass;
+//static enum ParamSat satType =  eSatGps;
 
-/**
-   @brief Turn on / off the LED0 for CPU active notification.
-*/
 static void Led_isActive(void)
 {
   static int state = 1;
@@ -59,11 +60,6 @@ static void Led_isActive(void)
   }
 }
 
-/**
-   @brief Turn on / off the LED1 for positioning state notification.
-
-   @param [in] state Positioning state
-*/
 static void Led_isPosfix(bool state)
 {
   if (state)
@@ -76,11 +72,6 @@ static void Led_isPosfix(bool state)
   }
 }
 
-/**
-   @brief Turn on / off the LED3 for error notification.
-
-   @param [in] state Error state
-*/
 static void Led_isError(bool state)
 {
   if (state)
@@ -93,16 +84,24 @@ static void Led_isError(bool state)
   }
 }
 
+int Correct(int nr) {
+  //pripadne orezaní hodnoty na 0 az 255
+  if (nr < 0) nr = 0;
+  if (nr > 255) nr = 255;
+  return nr;
+}
+
 // SETUP-SETUP-SETUP-SETUP-SETUP-SETUP-SETUP-SETUP-SETUP-SETUP-SETUP-SETUP-SETUP-SETUP-SETUP-SETUP-SETUP-SETUP-SETUP-
 void setup() {
   pinMode(LED0, OUTPUT); //BME280 in operation
   pinMode(LED1, OUTPUT); //SD card in operation
   pinMode(LED2, OUTPUT);
-  pinMode(LED3, OUTPUT);
+  pinMode(LED3, OUTPUT); //Time synced
 
   int error_flag = 0;
 
   Serial.begin(115200);
+  Serial2.begin(9600);
 
   /* Wait HW initialization done. */
   sleep(3);
@@ -124,12 +123,6 @@ void setup() {
   }
   else
   {
-    /* Setup GNSS
-        It is possible to setup up to two GNSS satellites systems.
-        Depending on your location you can improve your accuracy by selecting different GNSS system than the GPS system.
-        See: https://developer.sony.com/develop/spresense/developer-tools/get-started-using-nuttx/nuttx-developer-guide#_gnss
-        for detailed information.
-    */
     switch (satType)
     {
       case eSatGps:
@@ -168,7 +161,6 @@ void setup() {
         Gnss.select(QZ_L1CA);
         break;
     }
-
 
     /* Start positioning */
     result = Gnss.start(COLD_START);
@@ -217,7 +209,7 @@ void setup() {
     myLogFile = SD.open("iTrubecLog.csv", FILE_WRITE);
     if (myLogFile) {
       Serial.print("Writing header row to log file iTrubecLog.csv on SD card...");
-      myLogFile.println("Date;Time;Temperature;Humidity;Atm.Pressure;Longitude;Latitude;AVG Sound level;MIN Sound level;MAX Sound level");
+      myLogFile.println("Date;Time;DateTime;Temperature;Humidity;Atm.Pressure;Longitude;Latitude;AVG Sound level;MIN Sound level;MAX Sound level");
       myLogFile.close();
       Serial.println("...done.");
     } else {
@@ -230,10 +222,13 @@ void setup() {
 
 static void get_date_time(SpNavData *pNavData)
 {
+  /* get year */
+  myYear = pNavData->time.year;
+  if (myYear > 1980){ledOn(PIN_LED3);}else{ledOff(PIN_LED3);}
   /* get date */
-  snprintf(myDate, 15, "%04d/%02d/%02d ", pNavData->time.year, pNavData->time.month, pNavData->time.day);
+  snprintf(myDate, 15, "%04d.%02d.%02d", pNavData->time.year, pNavData->time.month, pNavData->time.day);
   /* get time */
-  snprintf(myTime, 15, "%02d:%02d:%02d.%06d, ", pNavData->time.hour, pNavData->time.minute, pNavData->time.sec, pNavData->time.usec);
+  snprintf(myTime, 15, "%02d:%02d:%02d", pNavData->time.hour, pNavData->time.minute, pNavData->time.sec);
 }
 
 /**
@@ -350,7 +345,7 @@ void SampleSound() {
   unsigned int signalMax = 0;
   unsigned int signalMin = 1024;
 
-  // collect data for 50 mS
+  // collect data for 50 ms
   while (millis() - startMillis < sampleWindow)
   {
     sample = analogRead(A0);
@@ -373,22 +368,10 @@ void SampleSound() {
 // LOOP-LOOP-LOOP-LOOP-LOOP-LOOP-LOOP-LOOP-LOOP-LOOP-LOOP-LOOP-LOOP-LOOP-LOOP-LOOP-LOOP-LOOP-LOOP-LOOP-LOOP-LOOP-LOOP-
 void loop() {
 
-
-
-  // LOOP-BLOCK-1s-LOOP-BLOCK-1s-LOOP-BLOCK-1s-LOOP-BLOCK-1s-LOOP-BLOCK-1s-LOOP-BLOCK-1s-LOOP-BLOCK-1s-LOOP-BLOCK-1s-LOOP-BLOCK-1s-LOOP-BLOCK-1s-LOOP-BLOCK-1s-LOOP-BLOCK-1s
-  if (millis() > (1000 + lastJob1s))
-  {
-    // kód vykonaný každou 1 vteřinu (1000 ms)
-    //Serial.println("1 s");
-
-
-    lastJob1s = millis();
-  } // 1s konec
-
   // LOOP-BLOCK-5s-LOOP-BLOCK-5s-LOOP-BLOCK-5s-LOOP-BLOCK-5s-LOOP-BLOCK-5s-LOOP-BLOCK-5s-LOOP-BLOCK-5s-LOOP-BLOCK-5s-LOOP-BLOCK-5s-LOOP-BLOCK-5s-LOOP-BLOCK-5s-LOOP-BLOCK-5s-
   if (millis() > (5000 + lastJob5s))
   {
-    // kód vykonaný každých 5 vteřin (5000 ms)
+    // runs every 5 seconds (5000 ms)
     static int LoopCount = 0;
     static int LastPrintMin = 0;
 
@@ -421,7 +404,7 @@ void loop() {
     else
     {
       /* Not update. */
-      Serial.println("data not update");
+      Serial.println("data not updated");
     }
 
     /* Check loop count. */
@@ -484,37 +467,21 @@ void loop() {
     myZvukCount = myZvukCount + 1;
     if (myZvuk < myZvukMin) {
       myZvukMin = myZvuk;
+      if (myZvukMin < 0) { //time to time is negative value returned - this is to artificially fix it as it is a nonsence
+        myZvukMin = 0;
+      }
     }
     if (myZvuk > myZvukMax) {
       myZvukMax = myZvuk;
     }
 
     lastJob5s = millis();
-  } // 5s konec
-
-  // LOOP-BLOCK-10s-LOOP-BLOCK-10s-LOOP-BLOCK-10s-LOOP-BLOCK-10s-LOOP-BLOCK-10s-LOOP-BLOCK-10s-LOOP-BLOCK-10s-LOOP-BLOCK-10-LOOP-BLOCK-10s-LOOP-BLOCK-10s-LOOP-BLOCK-10s
-  if (millis() > (10000 + lastJob10s))
-  {
-    // kód vykonaný každých 10 vteřin (10000 ms)
-    //Serial.println("10 s");
-
-
-    lastJob10s = millis();
-  } // 10s konec
-
-  // LOOP-BLOCK-30s-LOOP-BLOCK-30s-LOOP-BLOCK-30s-LOOP-BLOCK-30s-LOOP-BLOCK-30s-LOOP-BLOCK-30s-LOOP-BLOCK-30s-LOOP-BLOCK-30s-LOOP-BLOCK-30s-LOOP-BLOCK-30s-LOOP-BLOCK-30s-
-  if (millis() > (30000 + lastJob30s))
-  {
-    // kód vykonaný každých 30 vteřin (30000 ms)
-
-
-    lastJob30s = millis();
-  } //30s konec
+  } // 5s end
 
   // LOOP-BLOCK-1min-LOOP-BLOCK-1min-LOOP-BLOCK-1min-LOOP-BLOCK-1min-LOOP-BLOCK-1min-LOOP-BLOCK-1min-LOOP-BLOCK-1min-LOOP-BLOCK-1min-LOOP-BLOCK-1min-LOOP-BLOCK-1min
   if (millis() > (60000 + lastJob1min))
   {
-    // kód vykonaný každou 1 minutu (60000 ms)
+    // runs every minute (60000 ms)
     //Serial.println("1min");
     //Average level of sound
     myZvukAVG = myZvukSum / myZvukCount;
@@ -549,36 +516,44 @@ void loop() {
 
     // initialization of SD card and writing the log
     digitalWrite(LED1, HIGH);
-    myLogFile = SD.open("iTrubecLog.csv", FILE_WRITE);
-    if (myLogFile) {
-      Serial.print("Writing log to SD card - iTrubecLog.csv...");
-      myLogFile.print(myDate);
-      myLogFile.print(";");
-      myLogFile.print(myTime);
-      myLogFile.print(";");
-      myLogFile.print(myTemp);
-      myLogFile.print(";");
-      myLogFile.print(myHumi);
-      myLogFile.print(";");
-      myLogFile.print(myPres);
-      myLogFile.print(";");
-      myLogFile.print(myLon);
-      myLogFile.print(";");
-      myLogFile.print(myLat);
-      myLogFile.print(";");
-      myLogFile.print(myZvukAVG);
-      myLogFile.print(";");
-      myLogFile.print(myZvukMin);
-      myZvukMin = 1024;
-      myLogFile.print(";");
-      myLogFile.print(myZvukMax);
-      myZvukMax = 0;
-      myLogFile.println("");
-      myLogFile.close();
-      Serial.println("...done.");
+    if (myYear > 1980) { // GNSS time retrieved
+      myLogFile = SD.open("iTrubecLog.csv", FILE_WRITE);
+      if (myLogFile) {
+        Serial.print("Writing log to SD card - iTrubecLog.csv...");
+        myLogFile.print(myDate);
+        myLogFile.print(";");
+        myLogFile.print(myTime);
+        myLogFile.print(";");
+        myLogFile.print(myDate);
+        myLogFile.print(" ");
+        myLogFile.print(myTime);
+        myLogFile.print(";");
+        myLogFile.print(myTemp);
+        myLogFile.print(";");
+        myLogFile.print(myHumi);
+        myLogFile.print(";");
+        myLogFile.print(myPres);
+        myLogFile.print(";");
+        myLogFile.print(myLon);
+        myLogFile.print(";");
+        myLogFile.print(myLat);
+        myLogFile.print(";");
+        myLogFile.print(myZvukAVG);
+        myLogFile.print(";");
+        myLogFile.print(myZvukMin);
+        myZvukMin = 1024;
+        myLogFile.print(";");
+        myLogFile.print(myZvukMax);
+        myZvukMax = 0;
+        myLogFile.println("");
+        myLogFile.close();
+        Serial.println("...done.");
+      } else {
+        /* If the file didn't open, print an error */
+        Serial.println("error opening log file iTrubecLog.csv");
+      }
     } else {
-      /* If the file didn't open, print an error */
-      Serial.println("error opening log file iTrubecLog.csv");
+      Serial.println("Actual time not retrieved -> no log recorded (waiting for sync).");
     }
     digitalWrite(LED1, LOW);
     Serial.println();
@@ -604,20 +579,59 @@ void loop() {
       //POSITION CHANGE ALERT!
       Serial.println();
       Serial.println("POSITION CHANGED");
+      //alert message
+      Serial.println("SigFox modem link init - ALERT mode");
+      //prepare sigfox alert message
+      sprintf(zprava, "%02X%04X%04X", 2, myLat, myLon);
+      Serial.print("Sigfox Alert message: ");
+      Serial.println(zprava);
+      //Sending SigFox message
+      Serial2.print("AT$SF=");
+      Serial2.println(zprava);
+      Serial.println("Alert message sent");
+      Serial.println("--------------------------------------");
+      delay(1000);
+      Serial.println("SigFox Alert communication is over");
       Serial.println();
     }
 
     lastJob1min = millis();
-  } // 1min konec
+  } // 1min end
 
-  // LOOP-BLOCK-10min-LOOP-BLOCK-10min-LOOP-BLOCK-10min-LOOP-BLOCK-10min-LOOP-BLOCK-10min-LOOP-BLOCK-10min-LOOP-BLOCK-10min-LOOP-BLOCK-10min-LOOP-BLOCK-10min-LOOP-BLOCK-10min-
-  if (millis() > (300000 + lastJob10min))
+  // LOOP-BLOCK-15min-LOOP-BLOCK-15min-LOOP-BLOCK-15min-LOOP-BLOCK-15min-LOOP-BLOCK-15min-LOOP-BLOCK-15min-LOOP-BLOCK-15min-LOOP-BLOCK-15min-LOOP-BLOCK-15min-LOOP-BLOCK-15min-
+  if (millis() > (900000 + lastJob15min))
   {
-    // kód vykonaný každých 5 minut (300000 ms)
+    // runs each 15th minute (900000 ms)
+    Serial.println("SigFox modem link init - Data mode");
+    // SigFox message
+    // Temp rounded to integer plus 50 (50 => 0 degrees of celsius)
+    t1 = int(round(myTemp) + 50);
+    t1 = Correct(t1);
+    // humidity rounded to integer
+    v1 = int(round(myHumi));
+    v1 = Correct(v1);
+    // pressure rounded to integer and diminished by 885 (1013-128) => 128 is 1013 hPa
+    p1 = int(round(myPres) - 885);
+    p1 = Correct(p1);
+    // sound rounded to integer
+    s1 = int(round(myZvukAVG));
+    s1 = Correct(s1);
 
+    //prepare sigfox data message
+    sprintf(zprava, "%02X%02X%02X%02X%02X", 1, t1, v1, p1, s1);
+    Serial.print("Sigfox data message: ");
+    Serial.println(zprava);
+    //Sending SigFox message
+    Serial2.print("AT$SF=");
+    Serial2.println(zprava);
+    Serial.println("Data message sent");
+    Serial.println("--------------------------------------");
+    delay(1000);
+    Serial.println("SigFox Data communication is over");
+    Serial.println();
 
-    lastJob10min = millis();
-  } // 5min konec
+    lastJob15min = millis();
+  } // 15min end
 
   // LOOP-BLOCK-LOOP-BLOCK-LOOP-BLOCK-LOOP-BLOCK-LOOP-BLOCK-LOOP-BLOCK-LOOP-BLOCK-LOOP-BLOCK-LOOP-BLOCK-LOOP-BLOCK-LOOP-BLOCK-LOOP-BLOCK-LOOP-BLOCK-LOOP-BLOCK-LOOP-BLOCK-
-} // loop konec
+} // loop end
