@@ -29,10 +29,10 @@ http://itrubec.cz/monitor/REST_API.php?key=xxxxxxx&dev=xxxxxxxx&la=49.21095&lo=1
 
 $_GET   = filter_input_array(INPUT_GET, FILTER_SANITIZE_STRING);
 
-$servername = "XXXX";   //jméno serveru
-$username = "XXXX";       //DB login
-$password = "XXXX";//DB psswd
-$dbname = "XXXX";       //DB name
+$servername = "xxx";   //jméno serveru
+$username = "xxx";       //DB login
+$password = "xxx";//DB psswd
+$dbname = "xxx";       //DB name
 
 // Create connection
 $mysqli =  new mysqli($servername, $username, $password, $dbname);
@@ -95,12 +95,12 @@ if ($a1 == 1){  //data call
 
 if ($a1 == 2){  //Theft Alert call
   //SMS alert!
-   $to = "+420XXXXXXXXX@sms.cz.o2.com";
+   $to = "+420xxxxxxxxxxx@sms.cz.o2.com";
    $subject = "Theft Alert";
    $txt = "Motion detected at beehive #".$dev."\nLat: ".$la."\nLon: ".$lo;
-   $headers = 'From: info@XXXX.cz' . "\r\n" .
-    'Reply-To: info@XXXX.cz' . "\r\n" .
-    'Cc: info@XXXX.cz' . "\r\n" .
+   $headers = 'From: info@itrubec.cz' . "\r\n" .
+    'Reply-To: info@itrubec.cz' . "\r\n" .
+    'Cc: info@itrubec.cz' . "\r\n" .
     'X-Mailer: PHP/' . phpversion();
    mail($to,$subject,$txt,$headers);
 
